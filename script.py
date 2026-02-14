@@ -323,11 +323,11 @@ async def account_info():
 @app.post("/test-connection")
 async def test_connection(data: TestConnectionRequest):
     initialized = mt5.login(
-        # path=get_mt5_path(),
+        path=get_mt5_path(),
         login=int(data.login),
         password=data.password,
         server=data.server,
-        # portable=True,
+        portable=True,
     )
 
     if not initialized:
