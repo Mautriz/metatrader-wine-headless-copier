@@ -67,6 +67,8 @@ def add_installation(name: str):
     if os.path.exists(dest_path):
         shutil.rmtree(dest_path)
 
+    shutil.copytree(source_path, dest_path)
+
     # Clear MT5 bases and cache
     cache_patterns = [
         f"{dest_path}/Bases/*",
@@ -79,8 +81,6 @@ def add_installation(name: str):
                 shutil.rmtree(path)
             elif os.path.isfile(path):
                 os.remove(path)
-
-    shutil.copytree(source_path, dest_path)
 
     return f"{dest_path}/terminal64.exe"
 
