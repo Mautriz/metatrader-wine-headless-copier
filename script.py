@@ -347,20 +347,15 @@ async def get_deals(data: TimeRangeRequest):
     print(len(mt5.history_deals_get(from_, to_)))
     print(len(other_mt5s[0].history_deals_get(from_, to_)))
 
+    deals = {
+        copy_accounts.root[i].id: mod.history_deals_get(from_, to_)
+        for i, mod in enumerate(other_mt5s)
+    } | {master_id: mt5.history_deals_get(from_, to_)}
+
     return {
-        "a": len(mt5.history_deals_get(from_, to_)),
-        "b": len(other_mt5s[0].history_deals_get(from_, to_)),
+        id: ([deal._asdict() for deal in deals_list] if deals_list is not None else [])
+        for id, deals_list in deals.items()
     }
-
-    # deals = {
-    #     copy_accounts.root[i].id: mod.history_deals_get(from_, to_)
-    #     for i, mod in enumerate(other_mt5s)
-    # } | {master_id: mt5.history_deals_get(from_, to_)}
-
-    # return {
-    #     id: ([deal._asdict() for deal in deals_list] if deals_list is not None else [])
-    #     for id, deals_list in deals.items()
-    # }
 
 
 @app.post("/get-positions")
