@@ -54,6 +54,9 @@ log("--- SCRIPT STARTING ---")
 copy_accounts = CopyAccountConfigs.model_validate_json(os.getenv("COPY_ACCOUNTS", "[]"))
 
 
+ENABLE_COPY_LOOP = os.getenv("ENABLE_COPY_LOOP", "true").lower() == "true"
+
+
 source_path = "/opt/wineprefix/drive_c/Program Files/meta"
 
 
@@ -156,6 +159,10 @@ def round_to_step(value: float, step: float):
 
 
 async def copy_trading_loop():
+    if not ENABLE_COPY_LOOP:
+        log("Copy loop is disabled. Set ENABLE_COPY_LOOP=true to enable it.")
+        return
+
     position_sizes: dict[int, float] = {}
     step_size_per_symbol: dict[str, float] = {}
 
@@ -343,9 +350,6 @@ async def get_deals(data: TimeRangeRequest):
     to_ = int(data.to_datetime.timestamp())
 
     log(f"Getting deals from {from_} to {to_}")
-
-    print(len(mt5.history_deals_get(from_, to_)))
-    print(len(other_mt5s[0].history_deals_get(from_, to_)))
 
     deals = {
         copy_accounts.root[i].id: mod.history_deals_get(from_, to_)
