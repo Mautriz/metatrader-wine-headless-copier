@@ -23,6 +23,6 @@ COPY ./volumes/ /volumes/
 COPY meta.zip ./
 
 
-COPY script.py v2/start.sh v2/mt5setup.exe ./
+COPY script.py v2/start.sh ./
 
 ENTRYPOINT ["./start.sh"]
