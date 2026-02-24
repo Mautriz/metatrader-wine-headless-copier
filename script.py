@@ -67,23 +67,10 @@ def get_mt5_path(base_path: str = source_path) -> str:
 def add_installation(name: str):
     dest_path = f"/opt/wineprefix/drive_c/Program Files/{name}"
 
-    if os.path.exists(dest_path):
-        shutil.rmtree(dest_path)
+    # if os.path.exists(dest_path):
+    #     shutil.rmtree(dest_path)
 
-    shutil.copytree(source_path, dest_path)
-
-    # Clear MT5 bases and cache
-    cache_patterns = [
-        f"{dest_path}/Bases/*",
-        f"{dest_path}/MQL5/Files/*",
-        f"{dest_path}/MQL5/Cache/*",
-    ]
-    for pattern in cache_patterns:
-        for path in glob.glob(pattern):
-            if os.path.isdir(path):
-                shutil.rmtree(path)
-            elif os.path.isfile(path):
-                os.remove(path)
+    # shutil.copytree(source_path, dest_path)
 
     return f"{dest_path}/terminal64.exe"
 
@@ -134,12 +121,6 @@ def add_module_and_init(
     if not initialized:
         log(f"Init failed! {i}")
         log(f"Error code: {mt5.last_error()}")
-
-    log(
-        f"Deals count for account: {len(mod.history_deals_get(
-            0, int((datetime.datetime.now() + datetime.timedelta(days=1)).timestamp())
-        ) or [])}"
-    )
 
     return mod
 

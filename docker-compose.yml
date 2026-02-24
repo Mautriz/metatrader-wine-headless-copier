@@ -1,7 +1,9 @@
 services:
   metatrader:
-    build: .
-    init: true
+    build: 
+      context: .
+      dockerfile: Dockerfile.v2
+    # init: true
     ports: 
       - 8000:8000
     env_file:
