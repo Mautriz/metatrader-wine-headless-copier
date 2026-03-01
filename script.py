@@ -7,7 +7,7 @@ import os
 import glob
 import shutil
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.concurrency import asynccontextmanager
 
 from importlib import import_module
@@ -417,6 +417,15 @@ class OrderRequest(BaseModel):
     type: int | None
 
 
+class SimpleOrderRequest(BaseModel):
+    action: Literal["buy", "sell"]
+    volume: float
+    symbol: str
+    sl_points: float | None
+    tp_points: float | None
+    deviation: int | None
+
+
 @app.get("/symbol-info-tick/{symbol}")
 async def tick_info(symbol: str):
     mt5.symbol_select(symbol)
@@ -446,6 +455,124 @@ async def send_order(order_request: OrderRequest):
         )
 
     return result._asdict()
+
+
+# Fix this
+@app.post("/send-simple-order")
+async def send_simple_order(data: SimpleOrderRequest):
+    """https://www.mql5.com/en/docs/integration/python_metatrader5/mt5ordersend_py"""
+    # prepare the buy request structure
+
+    mt5.symbol_select(data.symbol)
+
+    if data.action == "buy":
+        trade_type = mt5.ORDER_TYPE_BUY
+        price = mt5.symbol_info_tick(data.symbol).ask
+    elif data.action == "sell":
+        trade_type = mt5.ORDER_TYPE_SELL
+        price = mt5.symbol_info_tick(data.symbol).bid
+    point = mt5.symbol_info(data.symbol).point
+
+    buy_request = {
+        "action": mt5.TRADE_ACTION_DEAL,
+        "symbol": data.symbol,
+        "volume": data.volume,
+        "type": trade_type,
+        "price": price,
+        "sl": price - data.sl_points * point,
+        "tp": price + data.tp_points * point,
+        "deviation": data.deviation,
+        "magic": 7667,
+        "comment": "sent by python",
+        "type_time": mt5.ORDER_TIME_GTC,  # good till cancelled
+        "type_filling": mt5.ORDER_FILLING_FOK,
+    }
+    # send a trading request
+    result = mt5.order_send(buy_request)
+
+    if result.retcode != mt5.TRADE_RETCODE_DONE:
+        print(f"Order failed, retcode={result.retcode}, comment={result.comment}")
+
+    return result._asdict()
+
+
+@app.post("/close-position")
+async def close_position(position_ticket: int):
+    positions = mt5.positions_get()
+    position = next((p for p in positions if p.ticket == position_ticket), None)
+
+    if position is None:
+        raise Exception(f"Position with ticket {position_ticket} not found")
+
+    req = OrderRequest(
+        action=1,
+        magic=None,
+        order=None,
+        symbol=position.symbol,
+        volume=position.volume,
+        price=None,
+        stoplimit=None,
+        sl=None,
+        tp=None,
+        deviation=20,
+        expiration=None,
+        comment=None,
+        position=position.ticket,
+        position_by=None,
+        type_filling=mt5.ORDER_FILLING_FOK,
+        type_time=mt5.ORDER_TIME_GTC,
+        type=(
+            mt5.ORDER_TYPE_SELL
+            if position.type == mt5.POSITION_TYPE_BUY
+            else mt5.ORDER_TYPE_BUY
+        ),
+    ).model_dump(exclude_none=True)
+
+    result = mt5.order_send(req)
+    if result.retcode != mt5.TRADE_RETCODE_DONE:
+        raise Exception(
+            f"Close position failed, retcode={result.retcode}, comment={result.comment} {mt5.last_error()}"
+        )
+
+    return result._asdict()
+
+
+@app.websocket("/ws/stream-equities")
+async def stream_equities(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            equities = {
+                copy_accounts.root[i].id: mod.account_info()._asdict()
+                for i, mod in enumerate(other_mt5s)
+            } | {master_id: mt5.account_info()._asdict()}
+
+            positions = {
+                copy_accounts.root[i].id: mod.positions_get()
+                for i, mod in enumerate(other_mt5s)
+            } | {master_id: mt5.positions_get()}
+
+            positions_dict = {
+                id: (
+                    [position._asdict() for position in positions_list]
+                    if positions_list is not None
+                    else []
+                )
+                for id, positions_list in positions.items()
+            }
+
+            data = {"equities": equities, "positions": positions_dict}
+
+            await websocket.send_json(data)
+            await asyncio.sleep(0.1)
+    except Exception as e:
+        log(f"WebSocket error: {e}")
+    finally:
+        try:
+            if websocket.client_state == 1:  # Check if the connection is still open
+                await websocket.close()
+        except Exception as e:
+            log(f"Error closing WebSocket: {e}")
 
 
 if __name__ == "__main__":
