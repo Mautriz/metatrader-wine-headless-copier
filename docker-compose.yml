@@ -1,8 +1,9 @@
 services:
   metatrader:
+    # image: mautrix100/mt5-python:0.7
     build: 
       context: .
-      dockerfile: Dockerfile.v2
+      dockerfile: Dockerfile
     # init: true
     ports: 
       - 8000:8000
