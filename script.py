@@ -4,8 +4,8 @@ import MetaTrader5 as mt5
 import os
 
 
-import glob
 import shutil
+import time
 
 from fastapi import FastAPI, WebSocket
 from fastapi.concurrency import asynccontextmanager
@@ -16,6 +16,9 @@ import asyncio
 
 from typing import Literal
 import datetime
+
+
+WAIT_TIME_BETWEEN_INITIALIZES = int(os.getenv("WAIT_TIME_BETWEEN_INITIALIZES", "0"))
 
 
 class CopyAccountConfig(BaseModel):
@@ -121,6 +124,11 @@ def add_module_and_init(
     if not initialized:
         log(f"Init failed! {i}")
         log(f"Error code: {mt5.last_error()}")
+
+    log(
+        f"Sleeping for {WAIT_TIME_BETWEEN_INITIALIZES} seconds before next initialization"
+    )
+    time.sleep(WAIT_TIME_BETWEEN_INITIALIZES)
 
     return mod
 
@@ -428,8 +436,7 @@ class SimpleOrderRequest(BaseModel):
 
 @app.get("/symbol-info-tick/{symbol}")
 async def tick_info(symbol: str):
-    mt5.symbol_select(symbol)
-    tick = mt5.symbol_info_tick(symbol)
+    tick = try_symbol_tick(symbol)
     if tick is None:
         raise Exception(f"Symbol {symbol} not found")
 
@@ -463,14 +470,15 @@ async def send_simple_order(data: SimpleOrderRequest):
     """https://www.mql5.com/en/docs/integration/python_metatrader5/mt5ordersend_py"""
     # prepare the buy request structure
 
-    mt5.symbol_select(data.symbol)
+    symbol = try_symbol_tick(data.symbol)
 
     if data.action == "buy":
         trade_type = mt5.ORDER_TYPE_BUY
-        price = mt5.symbol_info_tick(data.symbol).ask
+        price = symbol.ask
     elif data.action == "sell":
         trade_type = mt5.ORDER_TYPE_SELL
-        price = mt5.symbol_info_tick(data.symbol).bid
+        price = symbol.bid
+
     point = mt5.symbol_info(data.symbol).point
 
     buy_request = {
@@ -492,6 +500,8 @@ async def send_simple_order(data: SimpleOrderRequest):
 
     if result.retcode != mt5.TRADE_RETCODE_DONE:
         print(f"Order failed, retcode={result.retcode}, comment={result.comment}")
+
+    # set stop loss and take profit basead on result.price
 
     return result._asdict()
 
@@ -538,7 +548,7 @@ async def close_position(position_ticket: int):
 
 
 @app.websocket("/ws/stream-equities")
-async def stream_equities(websocket: WebSocket):
+async def stream_equities(websocket: WebSocket, symbol: str | None = None):
     await websocket.accept()
     try:
         while True:
@@ -561,7 +571,15 @@ async def stream_equities(websocket: WebSocket):
                 for id, positions_list in positions.items()
             }
 
-            data = {"equities": equities, "positions": positions_dict}
+            symbol_tick = None
+            if symbol is not None:
+                symbol_tick = try_symbol_tick(symbol)
+
+            data = {
+                "equities": equities,
+                "positions": positions_dict,
+                "symbol_tick": symbol_tick._asdict() if symbol_tick else None,
+            }
 
             await websocket.send_json(data)
             await asyncio.sleep(0.1)
@@ -579,3 +597,11 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+def try_symbol_tick(symbol):
+    try:
+        return mt5.symbol_info_tick(symbol)
+    except Exception as e:
+        mt5.symbol_select(symbol)
+        return mt5.symbol_info_tick(symbol)
