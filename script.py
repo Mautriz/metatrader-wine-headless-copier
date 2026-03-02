@@ -63,6 +63,20 @@ ENABLE_COPY_LOOP = os.getenv("ENABLE_COPY_LOOP", "true").lower() == "true"
 source_path = "/opt/wineprefix/drive_c/Program Files/meta"
 
 
+def try_symbol_tick(symbol: str):
+    try:
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            raise Exception(f"Symbol {symbol} not found {mt5.last_error()}")
+    except Exception as e:
+        print(e)
+        mt5.symbol_select(symbol)
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            raise Exception(f"Symbol {symbol} not found {mt5.last_error()}")
+    return tick
+
+
 def get_mt5_path(base_path: str = source_path) -> str:
     return f"{base_path}/terminal64.exe"
 
@@ -597,11 +611,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-def try_symbol_tick(symbol):
-    try:
-        return mt5.symbol_info_tick(symbol)
-    except Exception as e:
-        mt5.symbol_select(symbol)
-        return mt5.symbol_info_tick(symbol)
