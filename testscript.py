@@ -20,7 +20,34 @@ mt5.initialize()
 mt5.symbol_select("BTCUSD")
 # print(mt5.symbol_info("BTCUSD")._asdict())
 
-print([o._asdict() for o in mt5.orders_get()])
+orders = [o._asdict() for o in mt5.orders_get()]
+print("BEFORE:", orders)
+
+if orders:
+    ticket = orders[0]["ticket"]
+    symbol = orders[0]["symbol"]
+
+    request = {
+        "action": mt5.TRADE_ACTION_REMOVE,
+        "order": ticket,
+        # "symbol": symbol,
+        # "type_time": mt5.ORDER_TIME_GTC,
+    }
+
+    result = mt5.order_send(request)
+
+    # Check what actually happened
+    if result is None:
+        print("order_send returned None — error:", mt5.last_error())
+    elif result.retcode != mt5.TRADE_RETCODE_DONE:
+        print(f"Failed to cancel. retcode: {result.retcode}, comment: {result.comment}")
+        print("Full result:", result)
+    else:
+        print("Order cancelled successfully:", result)
+
+print("AFTER")
+orders_after = [o._asdict() for o in mt5.orders_get()]
+print(orders_after)
 
 
 def get_info(symbol):
@@ -33,7 +60,6 @@ def get_info(symbol):
 def open_trade(action, symbol, lot, sl_points, tp_points, deviation):
     """https://www.mql5.com/en/docs/integration/python_metatrader5/mt5ordersend_py"""
     # prepare the buy request structure
-    symbol_info = get_info(symbol)
 
     if action == "buy":
         trade_type = mt5.ORDER_TYPE_BUY
