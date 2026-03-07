@@ -161,6 +161,18 @@ def round_to_step(value: float, step: float):
     return round(value / step) * step
 
 
+async def stop_loss_take_profit_loop():
+    while True:
+        try:
+            info = mt5.positions_get()
+            for pos in info:
+                ...
+        except Exception as e:
+            log("CRASH IN SL/TP LOOP")
+            log(e)
+            await asyncio.sleep(1)
+
+
 async def copy_trading_loop():
     if not ENABLE_COPY_LOOP:
         log("Copy loop is disabled. Set ENABLE_COPY_LOOP=true to enable it.")
