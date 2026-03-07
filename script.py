@@ -440,12 +440,13 @@ class OrderRequest(BaseModel):
 
 
 class SimpleOrderRequest(BaseModel):
-    action: Literal["buy", "sell"]
+    action: Literal["buy", "sell", "buy_limit", "sell_limit"]
     volume: float
     symbol: str
     sl_points: float | None
     tp_points: float | None
     deviation: int | None
+    price: float | None = None  # required for limit orders
 
 
 @app.get("/symbol-info-tick/{symbol}")
@@ -478,44 +479,61 @@ async def send_order(order_request: OrderRequest):
     return result._asdict()
 
 
-# Fix this
 @app.post("/send-simple-order")
 async def send_simple_order(data: SimpleOrderRequest):
     """https://www.mql5.com/en/docs/integration/python_metatrader5/mt5ordersend_py"""
-    # prepare the buy request structure
 
     symbol = try_symbol_tick(data.symbol)
+    point = mt5.symbol_info(data.symbol).point
 
     if data.action == "buy":
         trade_type = mt5.ORDER_TYPE_BUY
         price = symbol.ask
+        action = mt5.TRADE_ACTION_DEAL
+        filling = mt5.ORDER_FILLING_FOK
+        sl = price - data.sl_points * point
+        tp = price + data.tp_points * point
     elif data.action == "sell":
         trade_type = mt5.ORDER_TYPE_SELL
         price = symbol.bid
+        action = mt5.TRADE_ACTION_DEAL
+        filling = mt5.ORDER_FILLING_FOK
+        sl = price + data.sl_points * point
+        tp = price - data.tp_points * point
+    elif data.action == "buy_limit":
+        trade_type = mt5.ORDER_TYPE_BUY_LIMIT
+        price = data.price  # must be below current ask
+        action = mt5.TRADE_ACTION_PENDING
+        filling = mt5.ORDER_FILLING_RETURN
+        sl = price - data.sl_points * point
+        tp = price + data.tp_points * point
+    elif data.action == "sell_limit":
+        trade_type = mt5.ORDER_TYPE_SELL_LIMIT
+        price = data.price  # must be above current bid
+        action = mt5.TRADE_ACTION_PENDING
+        filling = mt5.ORDER_FILLING_RETURN
+        sl = price + data.sl_points * point
+        tp = price - data.tp_points * point
 
-    point = mt5.symbol_info(data.symbol).point
-
-    buy_request = {
-        "action": mt5.TRADE_ACTION_DEAL,
+    request = {
+        "action": action,
         "symbol": data.symbol,
         "volume": data.volume,
         "type": trade_type,
         "price": price,
-        "sl": price - data.sl_points * point,
-        "tp": price + data.tp_points * point,
+        "sl": sl,
+        "tp": tp,
         "deviation": data.deviation,
         "magic": 7667,
-        "comment": "sent by python",
-        "type_time": mt5.ORDER_TIME_GTC,  # good till cancelled
-        "type_filling": mt5.ORDER_FILLING_FOK,
+        "comment": f"sl {data.sl_points} tp {data.tp_points}",
+        "type_time": mt5.ORDER_TIME_GTC,
+        "type_filling": filling,
     }
-    # send a trading request
-    result = mt5.order_send(buy_request)
+
+    result = mt5.order_send(request)
 
     if result.retcode != mt5.TRADE_RETCODE_DONE:
         print(f"Order failed, retcode={result.retcode}, comment={result.comment}")
-
-    # set stop loss and take profit basead on result.price
 
     return result._asdict()
 
@@ -562,7 +580,9 @@ async def close_position(position_ticket: int):
 
 
 @app.websocket("/ws/stream-equities")
-async def stream_equities(websocket: WebSocket, symbol: str | None = None):
+async def stream_equities(
+    websocket: WebSocket, symbol: str | None = None, sleep: float = 0.25
+):
     await websocket.accept()
     try:
         while True:
@@ -596,7 +616,7 @@ async def stream_equities(websocket: WebSocket, symbol: str | None = None):
             }
 
             await websocket.send_json(data)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(sleep)
     except Exception as e:
         log(f"WebSocket error: {e}")
     finally:
