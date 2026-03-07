@@ -21,6 +21,20 @@ import datetime
 WAIT_TIME_BETWEEN_INITIALIZES = int(os.getenv("WAIT_TIME_BETWEEN_INITIALIZES", "0"))
 
 
+class MT5Error(BaseModel):
+    code: int
+    message: str
+
+    @staticmethod
+    def from_last_error() -> MT5Error | None:
+        last_error = mt5.last_error()
+
+        if last_error is None:
+            return None
+
+        return MT5Error(code=last_error[0], message=last_error[1])
+
+
 class CopyAccountConfig(BaseModel):
     id: str
     login: int
@@ -452,13 +466,23 @@ class OrderRequest(BaseModel):
 
 
 class SimpleOrderRequest(BaseModel):
-    action: Literal["buy", "sell", "buy_limit", "sell_limit"]
+    action: Literal[
+        "buy",
+        "sell",
+        "buy_limit",
+        "sell_limit",
+        "buy_stop",
+        "sell_stop",
+        "buy_stop_limit",
+        "sell_stop_limit",
+    ]
     volume: float
     symbol: str
     sl_points: float | None
     tp_points: float | None
     deviation: int | None
     price: float | None = None  # required for limit orders
+    stop_limit_price: float | None = None  # required for stop limit orders
 
 
 @app.get("/symbol-info-tick/{symbol}")
@@ -493,7 +517,6 @@ async def send_order(order_request: OrderRequest):
 
 @app.post("/send-simple-order")
 async def send_simple_order(data: SimpleOrderRequest):
-    """https://www.mql5.com/en/docs/integration/python_metatrader5/mt5ordersend_py"""
 
     symbol = try_symbol_tick(data.symbol)
     point = mt5.symbol_info(data.symbol).point
@@ -505,6 +528,7 @@ async def send_simple_order(data: SimpleOrderRequest):
         filling = mt5.ORDER_FILLING_FOK
         sl = price - data.sl_points * point
         tp = price + data.tp_points * point
+
     elif data.action == "sell":
         trade_type = mt5.ORDER_TYPE_SELL
         price = symbol.bid
@@ -512,16 +536,50 @@ async def send_simple_order(data: SimpleOrderRequest):
         filling = mt5.ORDER_FILLING_FOK
         sl = price + data.sl_points * point
         tp = price - data.tp_points * point
+
     elif data.action == "buy_limit":
         trade_type = mt5.ORDER_TYPE_BUY_LIMIT
-        price = data.price  # must be below current ask
+        price = data.price
         action = mt5.TRADE_ACTION_PENDING
         filling = mt5.ORDER_FILLING_RETURN
         sl = price - data.sl_points * point
         tp = price + data.tp_points * point
+
     elif data.action == "sell_limit":
         trade_type = mt5.ORDER_TYPE_SELL_LIMIT
-        price = data.price  # must be above current bid
+        price = data.price
+        action = mt5.TRADE_ACTION_PENDING
+        filling = mt5.ORDER_FILLING_RETURN
+        sl = price + data.sl_points * point
+        tp = price - data.tp_points * point
+
+    elif data.action == "buy_stop":
+        trade_type = mt5.ORDER_TYPE_BUY_STOP
+        price = data.price  # must be above current ask
+        action = mt5.TRADE_ACTION_PENDING
+        filling = mt5.ORDER_FILLING_RETURN
+        sl = price - data.sl_points * point
+        tp = price + data.tp_points * point
+
+    elif data.action == "sell_stop":
+        trade_type = mt5.ORDER_TYPE_SELL_STOP
+        price = data.price  # must be below current bid
+        action = mt5.TRADE_ACTION_PENDING
+        filling = mt5.ORDER_FILLING_RETURN
+        sl = price + data.sl_points * point
+        tp = price - data.tp_points * point
+
+    elif data.action == "buy_stop_limit":
+        trade_type = mt5.ORDER_TYPE_BUY_STOP_LIMIT
+        price = data.price  # stop price — must be above current ask
+        action = mt5.TRADE_ACTION_PENDING
+        filling = mt5.ORDER_FILLING_RETURN
+        sl = price - data.sl_points * point
+        tp = price + data.tp_points * point
+
+    elif data.action == "sell_stop_limit":
+        trade_type = mt5.ORDER_TYPE_SELL_STOP_LIMIT
+        price = data.price  # stop price — must be below current bid
         action = mt5.TRADE_ACTION_PENDING
         filling = mt5.ORDER_FILLING_RETURN
         sl = price + data.sl_points * point
@@ -533,6 +591,11 @@ async def send_simple_order(data: SimpleOrderRequest):
         "volume": data.volume,
         "type": trade_type,
         "price": price,
+        "stoplimit": (
+            data.stop_limit_price
+            if data.action in ("buy_stop_limit", "sell_stop_limit")
+            else 0.0
+        ),
         "sl": sl,
         "tp": tp,
         "deviation": data.deviation,
@@ -617,6 +680,8 @@ async def stream_equities(
                 for id, positions_list in positions.items()
             }
 
+            orders = {master_id: [order._asdict() for order in mt5.orders_get()]}
+
             symbol_tick = None
             if symbol is not None:
                 symbol_tick = try_symbol_tick(symbol)
@@ -625,6 +690,7 @@ async def stream_equities(
                 "equities": equities,
                 "positions": positions_dict,
                 "symbol_tick": symbol_tick._asdict() if symbol_tick else None,
+                "orders": orders,
             }
 
             await websocket.send_json(data)
