@@ -18,6 +18,9 @@ from typing import Literal
 import datetime
 
 
+from fastapi import HTTPException
+
+
 WAIT_TIME_BETWEEN_INITIALIZES = int(os.getenv("WAIT_TIME_BETWEEN_INITIALIZES", "0"))
 
 
@@ -33,6 +36,14 @@ class MT5Error(BaseModel):
             return None
 
         return MT5Error(code=last_error[0], message=last_error[1])
+
+
+def check_mt5_error():
+    error = MT5Error.from_last_error()
+    if error is not None and error.code != 0:
+        raise HTTPException(
+            status_code=400, detail=f"MT5 Error {error.code}: {error.message}"
+        )
 
 
 class CopyAccountConfig(BaseModel):
@@ -511,6 +522,22 @@ async def send_order(order_request: OrderRequest):
         raise Exception(
             f"Order failed, retcode={result.retcode}, comment={result.comment} {mt5.last_error()}"
         )
+
+    return result._asdict()
+
+
+@app.post("/kill-order")
+async def kill_order(ticket: int):
+    request = {
+        "action": mt5.TRADE_ACTION_REMOVE,
+        "order": ticket,
+    }
+
+    result = mt5.order_send(request)
+
+    if result.retcode != mt5.TRADE_RETCODE_DONE:
+        print(f"Cancel failed, retcode={result.retcode}, comment={result.comment}")
+        raise HTTPException(status_code=400, detail=result.comment)
 
     return result._asdict()
 
