@@ -31,6 +31,11 @@ class NotificationHolder:
     def add_notification(self, notification):
         self.notifications.append(notification)
 
+    def get_notifications(self):
+        notifications = self.notifications.copy()
+        self.notifications.clear()
+        return notifications
+
 
 notification_holder = NotificationHolder()
 
@@ -767,6 +772,7 @@ async def stream_equities(
                 "positions": positions_dict,
                 "symbol_tick": symbol_tick._asdict() if symbol_tick else None,
                 "orders": orders,
+                "notifications": notification_holder.get_notifications(),
             }
 
             await websocket.send_json(data)
