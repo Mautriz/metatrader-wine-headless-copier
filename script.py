@@ -26,7 +26,7 @@ WAIT_TIME_BETWEEN_INITIALIZES = int(os.getenv("WAIT_TIME_BETWEEN_INITIALIZES", "
 
 class NotificationHolder:
     def __init__(self):
-        self.notifications = []
+        self.notifications: list = []
 
     def add_notification(self, notification):
         self.notifications.append(notification)
@@ -234,7 +234,6 @@ async def stop_loss_take_profit_loop():
                 "position": pos.ticket,
                 "sl": new_sl,  # ⚠️ This is a PRICE, not points!
                 "tp": new_tp,  # ⚠️ This is a PRICE, not points!
-                "comment": "CIAOOOO",
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": mt5.ORDER_FILLING_IOC,
             }
@@ -354,7 +353,14 @@ async def copy_trading_loop():
 
                     if result.retcode != mt5.TRADE_RETCODE_DONE:
                         log(
-                            f"Account {i} - Order failed, retcode={result.retcode}, comment={result.comment} {other_account.last_error()}"
+                            f"Account - Order failed, retcode={result.retcode}, comment={result.comment} {other_account.last_error()}"
+                        )
+                        notification_holder.add_notification(
+                            {
+                                "position": ticket,
+                                "message": f"Failed to match position for ticket {ticket} to account {copy_accounts.root[i].id}. Error code: {result.retcode}, {result.comment}",
+                                "volume": volume,
+                            }
                         )
 
             await asyncio.sleep(float(os.getenv("LOOP_DELAY_SECONDS", 1.0)))
@@ -681,7 +687,7 @@ async def send_simple_order(data: SimpleOrderRequest):
         "tp": tp,
         "deviation": data.deviation,
         "magic": 7667,
-        "comment": f"sl {data.sl_points} tp {data.tp_points}",
+        "comment": f"xax {data.sl_points} {data.tp_points}",
         "type_time": mt5.ORDER_TIME_GTC,
         "type_filling": filling,
     }
